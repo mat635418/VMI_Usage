@@ -270,16 +270,16 @@ def main():
     )
     st.plotly_chart(fig_po_sim, use_container_width=True)
 
-    # --- FOCUS ON FILLERS AND PCO ---
+    # --- FOCUS ON Fillers AND PCO ---
     st.divider()
-    st.header("5. 🎯 Strategic Focus: FILLERS & PCO")
+    st.header("5. 🎯 Strategic Focus: Fillers & PCO")
     st.markdown("**Procurement Action Plan** - Priority categories with detailed negotiation targets")
     
     # Slider for Top X selection
     topx_selection = st.slider("Select Top X Suppliers for Analysis", 1, 10, 5, key='topx_focus')
     
-    # Filter for FILLERS and PCO
-    focus_categories = ['FILLERS', 'PCO']
+    # Filter for Fillers and PCO
+    focus_categories = ['Fillers', 'PCO']
     focus_df = df[df['category'].isin(focus_categories)]
     
     # --- SUMMARY TABLE: PO REDUCTION POTENTIAL ---
@@ -322,7 +322,7 @@ def main():
     # Add TOTAL row
     if not summary_df.empty:
         total_row = {
-            'Category': '🔷 TOTAL',
+            'Category': '���� TOTAL',
             'Current Non-VMI POs': summary_df['Current Non-VMI POs'].sum(),
             'Total POs (Category)': summary_df['Total POs (Category)'].sum(),
             f'PO Reduction (Top {topx_selection})': summary_df[f'PO Reduction (Top {topx_selection})'].sum(),
@@ -342,7 +342,7 @@ def main():
         use_container_width=True
     )
     
-    st.info(f"💡 **Key Insight:** By negotiating with the Top {topx_selection} suppliers in FILLERS and PCO, we can reduce **{summary_df[summary_df['Category'] == '🔷 TOTAL'][f'PO Reduction (Top {topx_selection})'].values[0] if not summary_df[summary_df['Category'] == '🔷 TOTAL'].empty else 0:,.0f} POs**, representing **{summary_df[summary_df['Category'] == '🔷 TOTAL']['% of Total 2025 POs'].values[0] if not summary_df[summary_df['Category'] == '🔷 TOTAL'].empty else 0:.2f}%** of all 2025 Purchase Orders.")
+    st.info(f"💡 **Key Insight:** By negotiating with the Top {topx_selection} suppliers in Fillers and PCO, we can reduce **{summary_df[summary_df['Category'] == '🔷 TOTAL'][f'PO Reduction (Top {topx_selection})'].values[0] if not summary_df[summary_df['Category'] == '🔷 TOTAL'].empty else 0:,.0f} POs**, representing **{summary_df[summary_df['Category'] == '🔷 TOTAL']['% of Total 2025 POs'].values[0] if not summary_df[summary_df['Category'] == '🔷 TOTAL'].empty else 0:.2f}%** of all 2025 Purchase Orders.")
     
     # --- DETAILED SUPPLIER TABLES ---
     st.divider()
