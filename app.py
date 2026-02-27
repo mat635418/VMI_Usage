@@ -195,5 +195,80 @@ def main():
     fig_sim.update_layout(title="Impact of Moving Top 5 Suppliers to 100% VMI per Category", barmode='group')
     st.plotly_chart(fig_sim, use_container_width=True)
 
+    # --- PO COUNT IMPACT ANALYSIS ---
+    st.divider()
+    st.header("4. PO Count Impact Analysis")
+    st.markdown("Analyze the impact on **number of Purchase Orders** when applying the Top 5 strategy.")
+    
+    global_po_sim_data = []
+    
+    for cat in df['category'].unique():
+        c_df = df[df['category'] == cat]
+        s_agg = c_df.groupby('Supplier name')['PO Quantity'].sum().reset_index().sort_values('PO Quantity', ascending=False)
+        
+        # Get Top 5 suppliers for this category
+        top5_suppliers = s_agg.head(5)['Supplier name'].tolist()
+        
+        # Calculate PO counts
+        cat_total_pos = c_df.shape[0]
+        cat_current_vmi_pos = c_df[c_df['check'] == 'VMI'].shape[0]
+        
+        # Calculate simulated VMI POs (Assuming Top 5 become 100% VMI)
+        pos_from_top5 = c_df[c_df['Supplier name'].isin(top5_suppliers)].shape[0]
+        pos_from_others_vmi = c_df[(~c_df['Supplier name'].isin(top5_suppliers)) & (c_df['check'] == 'VMI')].shape[0]
+        
+        simulated_vmi_pos = pos_from_top5 + pos_from_others_vmi
+        
+        global_po_sim_data.append({
+            'Category': cat,
+            'Total POs': cat_total_pos,
+            'Current VMI POs': cat_current_vmi_pos,
+            'Current VMI %': (cat_current_vmi_pos / cat_total_pos) * 100 if cat_total_pos > 0 else 0,
+            'Projected VMI POs': simulated_vmi_pos,
+            'Projected VMI %': (simulated_vmi_pos / cat_total_pos) * 100 if cat_total_pos > 0 else 0,
+            'PO Gain': simulated_vmi_pos - cat_current_vmi_pos,
+            'Percentage Point Gain': ((simulated_vmi_pos / cat_total_pos) * 100 - (cat_current_vmi_pos / cat_total_pos) * 100) if cat_total_pos > 0 else 0
+        })
+    
+    po_sim_df = pd.DataFrame(global_po_sim_data)
+    
+    # Display Table
+    st.subheader("PO Count Impact Summary Table")
+    st.dataframe(
+        po_sim_df.style.format({
+            'Total POs': '{:,.0f}',
+            'Current VMI POs': '{:,.0f}',
+            'Current VMI %': '{:.1f}%',
+            'Projected VMI POs': '{:,.0f}',
+            'Projected VMI %': '{:.1f}%',
+            'PO Gain': '{:+,.0f}',
+            'Percentage Point Gain': '{:+.1f}pp'
+        }),
+        use_container_width=True
+    )
+    
+    # Display Graph
+    st.subheader("PO Count: Current vs Projected VMI Adoption")
+    fig_po_sim = go.Figure()
+    fig_po_sim.add_trace(go.Bar(
+        x=po_sim_df['Category'], 
+        y=po_sim_df['Current VMI %'], 
+        name='Current VMI %',
+        marker_color='#EF553B'
+    ))
+    fig_po_sim.add_trace(go.Bar(
+        x=po_sim_df['Category'], 
+        y=po_sim_df['Projected VMI %'], 
+        name='Projected VMI % (Top 5)',
+        marker_color='#00CC96'
+    ))
+    fig_po_sim.update_layout(
+        title="Impact of Moving Top 5 Suppliers to 100% VMI per Category (by PO Count)",
+        barmode='group',
+        yaxis_title="VMI Adoption (%)",
+        xaxis_title="Category"
+    )
+    st.plotly_chart(fig_po_sim, use_container_width=True)
+
 if __name__ == "__main__":
     main()
