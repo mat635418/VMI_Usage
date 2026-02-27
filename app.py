@@ -292,18 +292,20 @@ def main():
         if cat_data.empty:
             continue
             
-        # Get Top X suppliers
+        # Get Top X suppliers by volume
         top_suppliers = cat_data.groupby('Supplier name')['PO Quantity'].sum().reset_index().sort_values('PO Quantity', ascending=False).head(topx_selection)['Supplier name'].tolist()
         
         # Current state
         current_non_vmi_pos = cat_data[cat_data['check'] == 'not VMI'].shape[0]
         total_pos_cat = cat_data.shape[0]
         
-        # After Top X become VMI
-        # All POs from Top X suppliers will be VMI
+        # Calculate PO reduction: count all POs from Top X suppliers (both VMI and non-VMI)
+        # because moving to VMI means these POs will be managed differently
+        total_pos_from_topx = cat_data[cat_data['Supplier name'].isin(top_suppliers)].shape[0]
+        current_vmi_pos_from_topx = cat_data[(cat_data['Supplier name'].isin(top_suppliers)) & (cat_data['check'] == 'VMI')].shape[0]
         non_vmi_pos_from_topx = cat_data[(cat_data['Supplier name'].isin(top_suppliers)) & (cat_data['check'] == 'not VMI')].shape[0]
         
-        # PO reduction = non-VMI POs from Top X that will become VMI
+        # PO reduction = all non-VMI POs from Top X that will become VMI
         po_reduction = non_vmi_pos_from_topx
         reduction_pct_category = (po_reduction / total_pos_cat) * 100 if total_pos_cat > 0 else 0
         reduction_pct_total = (po_reduction / total_pos) * 100 if total_pos > 0 else 0
@@ -321,15 +323,24 @@ def main():
     
     # Add TOTAL row
     if not summary_df.empty:
+        total_reduction = summary_df[f'PO Reduction (Top {topx_selection})'].sum()
+        total_category_pos = summary_df['Total POs (Category)'].sum()
+        
         total_row = {
-            'Category': '���� TOTAL',
+            'Category': 'TOTAL',
             'Current Non-VMI POs': summary_df['Current Non-VMI POs'].sum(),
-            'Total POs (Category)': summary_df['Total POs (Category)'].sum(),
-            f'PO Reduction (Top {topx_selection})': summary_df[f'PO Reduction (Top {topx_selection})'].sum(),
-            '% of Category POs': (summary_df[f'PO Reduction (Top {topx_selection})'].sum() / summary_df['Total POs (Category)'].sum() * 100) if summary_df['Total POs (Category)'].sum() > 0 else 0,
-            '% of Total 2025 POs': (summary_df[f'PO Reduction (Top {topx_selection})'].sum() / total_pos * 100) if total_pos > 0 else 0
+            'Total POs (Category)': total_category_pos,
+            f'PO Reduction (Top {topx_selection})': total_reduction,
+            '% of Category POs': (total_reduction / total_category_pos * 100) if total_category_pos > 0 else 0,
+            '% of Total 2025 POs': (total_reduction / total_pos * 100) if total_pos > 0 else 0
         }
         summary_df = pd.concat([summary_df, pd.DataFrame([total_row])], ignore_index=True)
+    
+    # Custom styling function for TOTAL row
+    def highlight_total_row(row):
+        if row['Category'] == 'TOTAL':
+            return ['font-weight: bold; background-color: #d4edda'] * len(row)
+        return [''] * len(row)
     
     st.dataframe(
         summary_df.style.format({
@@ -338,11 +349,14 @@ def main():
             f'PO Reduction (Top {topx_selection})': '{:,.0f}',
             '% of Category POs': '{:.1f}%',
             '% of Total 2025 POs': '{:.1f}%'
-        }).apply(lambda x: ['background-color: #d4edda' if x['Category'] == '🔷 TOTAL' else '' for i in x], axis=1),
+        }).apply(highlight_total_row, axis=1),
         use_container_width=True
     )
     
-    st.info(f"💡 **Key Insight:** By negotiating with the Top {topx_selection} suppliers in Fillers and PCO, we can reduce **{summary_df[summary_df['Category'] == '🔷 TOTAL'][f'PO Reduction (Top {topx_selection})'].values[0] if not summary_df[summary_df['Category'] == '🔷 TOTAL'].empty else 0:,.0f} POs**, representing **{summary_df[summary_df['Category'] == '🔷 TOTAL']['% of Total 2025 POs'].values[0] if not summary_df[summary_df['Category'] == '🔷 TOTAL'].empty else 0:.2f}%** of all 2025 Purchase Orders.")
+    if not summary_df.empty:
+        total_reduction_value = summary_df[summary_df['Category'] == 'TOTAL'][f'PO Reduction (Top {topx_selection})'].values[0]
+        total_reduction_pct = summary_df[summary_df['Category'] == 'TOTAL']['% of Total 2025 POs'].values[0]
+        st.info(f"💡 **Key Insight:** By negotiating with the Top {topx_selection} suppliers in Fillers and PCO, we can reduce **{total_reduction_value:,.0f} POs**, representing **{total_reduction_pct:.2f}%** of all 2025 Purchase Orders.")
     
     # --- DETAILED SUPPLIER TABLES ---
     st.divider()
@@ -386,19 +400,31 @@ def main():
         # Get Top X
         top_suppliers_display = supplier_agg.head(topx_selection)[['Supplier name', 'Total_POs', 'Total_Volume_KG', 'VMI Status', 'Non-VMI POs', 'Current VMI Adoption (POs)', 'Current VMI Adoption (Volume)']]
         
-        st.dataframe(
-            top_suppliers_display.style.format({
-                'Total_POs': '{:,.0f}',
-                'Total_Volume_KG': '{:,.0f}',
-                'Non-VMI POs': '{:,.0f}',
-                'Current VMI Adoption (POs)': '{:.1f}%',
-                'Current VMI Adoption (Volume)': '{:.1f}%'
-            }).apply(lambda x: ['background-color: #fff3cd' if '⚠️' in str(v) else 
-                                'background-color: #f8d7da' if '❌' in str(v) else 
-                                'background-color: #d4edda' if '✅' in str(v) else '' 
-                                for v in x], subset=['VMI Status']),
-            use_container_width=True
-        )
+        # Custom styling function for supplier names
+        def style_supplier_table(styler):
+            # Style for supplier names column
+            styler.set_properties(subset=['Supplier name'], **{'font-weight': 'bold', 'font-size': '11pt'})
+            # Style for VMI Status column
+            def color_vmi_status(val):
+                if '❌' in str(val):
+                    return 'background-color: #f8d7da'
+                elif '⚠️' in str(val):
+                    return 'background-color: #fff3cd'
+                elif '✅' in str(val):
+                    return 'background-color: #d4edda'
+                return ''
+            styler.applymap(color_vmi_status, subset=['VMI Status'])
+            return styler
+        
+        styled_table = top_suppliers_display.style.format({
+            'Total_POs': '{:,.0f}',
+            'Total_Volume_KG': '{:,.0f}',
+            'Non-VMI POs': '{:,.0f}',
+            'Current VMI Adoption (POs)': '{:.1f}%',
+            'Current VMI Adoption (Volume)': '{:.1f}%'
+        }).pipe(style_supplier_table)
+        
+        st.dataframe(styled_table, use_container_width=True)
         
         st.markdown("---")
 
