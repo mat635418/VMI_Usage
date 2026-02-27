@@ -270,5 +270,137 @@ def main():
     )
     st.plotly_chart(fig_po_sim, use_container_width=True)
 
+    # --- FOCUS ON FILLERS AND PCO ---
+    st.divider()
+    st.header("5. 🎯 Strategic Focus: FILLERS & PCO")
+    st.markdown("**Procurement Action Plan** - Priority categories with detailed negotiation targets")
+    
+    # Slider for Top X selection
+    topx_selection = st.slider("Select Top X Suppliers for Analysis", 1, 10, 5, key='topx_focus')
+    
+    # Filter for FILLERS and PCO
+    focus_categories = ['FILLERS', 'PCO']
+    focus_df = df[df['category'].isin(focus_categories)]
+    
+    # --- SUMMARY TABLE: PO REDUCTION POTENTIAL ---
+    st.subheader(f"📊 PO Reduction Potential - Top {topx_selection} Strategy")
+    
+    summary_data = []
+    for cat in focus_categories:
+        cat_data = df[df['category'] == cat]
+        
+        if cat_data.empty:
+            continue
+            
+        # Get Top X suppliers
+        top_suppliers = cat_data.groupby('Supplier name')['PO Quantity'].sum().reset_index().sort_values('PO Quantity', ascending=False).head(topx_selection)['Supplier name'].tolist()
+        
+        # Current state
+        current_non_vmi_pos = cat_data[cat_data['check'] == 'not VMI'].shape[0]
+        total_pos_cat = cat_data.shape[0]
+        
+        # After Top X become VMI
+        # All POs from Top X suppliers will be VMI
+        non_vmi_pos_from_topx = cat_data[(cat_data['Supplier name'].isin(top_suppliers)) & (cat_data['check'] == 'not VMI')].shape[0]
+        
+        # PO reduction = non-VMI POs from Top X that will become VMI
+        po_reduction = non_vmi_pos_from_topx
+        reduction_pct_category = (po_reduction / total_pos_cat) * 100 if total_pos_cat > 0 else 0
+        reduction_pct_total = (po_reduction / total_pos) * 100 if total_pos > 0 else 0
+        
+        summary_data.append({
+            'Category': cat,
+            'Current Non-VMI POs': current_non_vmi_pos,
+            'Total POs (Category)': total_pos_cat,
+            f'PO Reduction (Top {topx_selection})': po_reduction,
+            '% of Category POs': reduction_pct_category,
+            '% of Total 2025 POs': reduction_pct_total
+        })
+    
+    summary_df = pd.DataFrame(summary_data)
+    
+    # Add TOTAL row
+    if not summary_df.empty:
+        total_row = {
+            'Category': '🔷 TOTAL',
+            'Current Non-VMI POs': summary_df['Current Non-VMI POs'].sum(),
+            'Total POs (Category)': summary_df['Total POs (Category)'].sum(),
+            f'PO Reduction (Top {topx_selection})': summary_df[f'PO Reduction (Top {topx_selection})'].sum(),
+            '% of Category POs': (summary_df[f'PO Reduction (Top {topx_selection})'].sum() / summary_df['Total POs (Category)'].sum() * 100) if summary_df['Total POs (Category)'].sum() > 0 else 0,
+            '% of Total 2025 POs': (summary_df[f'PO Reduction (Top {topx_selection})'].sum() / total_pos * 100) if total_pos > 0 else 0
+        }
+        summary_df = pd.concat([summary_df, pd.DataFrame([total_row])], ignore_index=True)
+    
+    st.dataframe(
+        summary_df.style.format({
+            'Current Non-VMI POs': '{:,.0f}',
+            'Total POs (Category)': '{:,.0f}',
+            f'PO Reduction (Top {topx_selection})': '{:,.0f}',
+            '% of Category POs': '{:.1f}%',
+            '% of Total 2025 POs': '{:.1f}%'
+        }).apply(lambda x: ['background-color: #d4edda' if x['Category'] == '🔷 TOTAL' else '' for i in x], axis=1),
+        use_container_width=True
+    )
+    
+    st.info(f"💡 **Key Insight:** By negotiating with the Top {topx_selection} suppliers in FILLERS and PCO, we can reduce **{summary_df[summary_df['Category'] == '🔷 TOTAL'][f'PO Reduction (Top {topx_selection})'].values[0] if not summary_df[summary_df['Category'] == '🔷 TOTAL'].empty else 0:,.0f} POs**, representing **{summary_df[summary_df['Category'] == '🔷 TOTAL']['% of Total 2025 POs'].values[0] if not summary_df[summary_df['Category'] == '🔷 TOTAL'].empty else 0:.2f}%** of all 2025 Purchase Orders.")
+    
+    # --- DETAILED SUPPLIER TABLES ---
+    st.divider()
+    st.subheader(f"🤝 Negotiation Targets: Top {topx_selection} Suppliers per Category")
+    
+    for cat in focus_categories:
+        st.markdown(f"### **{cat}**")
+        
+        cat_data = df[df['category'] == cat]
+        
+        if cat_data.empty:
+            st.warning(f"No data available for {cat}")
+            continue
+        
+        # Aggregate by supplier
+        supplier_agg = cat_data.groupby('Supplier name').agg(
+            Total_POs=('PO Quantity', 'count'),
+            Total_Volume_KG=('PO Quantity', 'sum'),
+            VMI_POs=('PO Quantity', lambda x: (cat_data.loc[x.index, 'check'] == 'VMI').sum()),
+            VMI_Volume_KG=('PO Quantity', lambda x: x[cat_data.loc[x.index, 'check'] == 'VMI'].sum())
+        ).reset_index()
+        
+        supplier_agg['Current VMI Adoption (POs)'] = (supplier_agg['VMI_POs'] / supplier_agg['Total_POs'] * 100).round(1)
+        supplier_agg['Current VMI Adoption (Volume)'] = (supplier_agg['VMI_Volume_KG'] / supplier_agg['Total_Volume_KG'] * 100).round(1)
+        supplier_agg['Non-VMI POs'] = supplier_agg['Total_POs'] - supplier_agg['VMI_POs']
+        
+        # Determine status
+        def get_vmi_status(row):
+            if row['Current VMI Adoption (POs)'] == 0:
+                return '❌ Not VMI'
+            elif row['Current VMI Adoption (POs)'] == 100:
+                return '✅ Full VMI'
+            else:
+                return f"⚠️ Partial ({row['Current VMI Adoption (POs)']:.0f}%)"
+        
+        supplier_agg['VMI Status'] = supplier_agg.apply(get_vmi_status, axis=1)
+        
+        # Sort by Total Volume
+        supplier_agg = supplier_agg.sort_values('Total_Volume_KG', ascending=False).reset_index(drop=True)
+        
+        # Get Top X
+        top_suppliers_display = supplier_agg.head(topx_selection)[['Supplier name', 'Total_POs', 'Total_Volume_KG', 'VMI Status', 'Non-VMI POs', 'Current VMI Adoption (POs)', 'Current VMI Adoption (Volume)']]
+        
+        st.dataframe(
+            top_suppliers_display.style.format({
+                'Total_POs': '{:,.0f}',
+                'Total_Volume_KG': '{:,.0f}',
+                'Non-VMI POs': '{:,.0f}',
+                'Current VMI Adoption (POs)': '{:.1f}%',
+                'Current VMI Adoption (Volume)': '{:.1f}%'
+            }).apply(lambda x: ['background-color: #fff3cd' if '⚠️' in str(v) else 
+                                'background-color: #f8d7da' if '❌' in str(v) else 
+                                'background-color: #d4edda' if '✅' in str(v) else '' 
+                                for v in x], subset=['VMI Status']),
+            use_container_width=True
+        )
+        
+        st.markdown("---")
+
 if __name__ == "__main__":
     main()
